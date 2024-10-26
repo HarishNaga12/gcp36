@@ -1,0 +1,6 @@
+create table stg_orders
+(
+
+
+
+);
