@@ -43,26 +43,49 @@ def validate_rule_inputs(rule_id, rule_behavior):
 
 # ----------------- Standard Check -----------------
 def standard_check(rule_id):
+    """Run the standard rule check.
+
+    Returns
+    -------
+    tuple
+        (rule_result, numerator_result, denominator_result, result_rag, error_message)
+    """
+
     validate_rule_inputs(rule_id, 'Standard')
     threshold_type = df[df['RULE_ID'] == str(rule_id)]['THRESHOLD_TYPE'].values[0]
 
-    if threshold_type.lower() == 'count':
-        numerator_sql = df[df['RULE_ID'] == str(rule_id)]['NUMERATOR_SQL'].values[0]
+    error_message = None
+    numerator_sql = df[df['RULE_ID'] == str(rule_id)]['NUMERATOR_SQL'].values[0]
+    try:
         numerator_result = next(iter(client.query(numerator_sql).result()))[0]
+    except Exception as e:
+        numerator_result = None
+        error_message = f"NUMERATOR_SQL error: {e}"
+
+    if threshold_type.lower() == 'count':
+        if numerator_result is None:
+            return None, None, None, None, error_message or "NULL numerator"
         red_threshold = int(df[df['RULE_ID'] == str(rule_id)]['RED_THRESHOLD'].values[0])
         amber_threshold = int(df[df['RULE_ID'] == str(rule_id)]['AMBER_THRESHOLD'].values[0])
         result_rag = 'Red' if numerator_result >= red_threshold else 'Amber' if numerator_result >= amber_threshold else 'Green'
-        return numerator_result, numerator_result, None, result_rag
+        return numerator_result, numerator_result, None, result_rag, None
     else:
         denominator_sql = df[df['RULE_ID'] == str(rule_id)]['DENOMINATOR_SQL'].values[0]
-        numerator_sql = df[df['RULE_ID'] == str(rule_id)]['NUMERATOR_SQL'].values[0]
-        numerator_result = next(iter(client.query(numerator_sql).result()))[0]
-        denominator_result = next(iter(client.query(denominator_sql).result()))[0]
+        denominator_result = None
+        if numerator_result is not None:
+            try:
+                denominator_result = next(iter(client.query(denominator_sql).result()))[0]
+            except Exception as e:
+                error_message = f"DENOMINATOR_SQL error: {e}"
+
+        if numerator_result is None or denominator_result in (None, 0):
+            return None, numerator_result, denominator_result, None, error_message or "NULL denominator"
+
         percent_result = np.round(100 * (numerator_result / denominator_result), 2)
         red_threshold = int(df[df['RULE_ID'] == str(rule_id)]['RED_THRESHOLD'].values[0])
         amber_threshold = int(df[df['RULE_ID'] == str(rule_id)]['AMBER_THRESHOLD'].values[0])
         result_rag = 'Red' if percent_result >= red_threshold else 'Amber' if percent_result >= amber_threshold else 'Green'
-        return percent_result, numerator_result, denominator_result, result_rag
+        return percent_result, numerator_result, denominator_result, result_rag, None
 
 # ----------------- Variance Check -----------------
 def variance_check(rule_id):
@@ -74,7 +97,7 @@ def variance_check(rule_id):
                      WHERE rule_id = '{rule_id}' AND is_latest_snapshot_flag = 'N'"""
     number_of_records = next(iter(client.query(test_query).result()))[0]
     if number_of_records < N:
-        return None, numerator_result, None, 'Green'
+        return None, numerator_result, None, 'Green', None
     n_day_avg_sql = f"""WITH recent_n_records AS (
                           SELECT snapshot_date, numerator_result
                           FROM `taw-centralrpt-prod-5796.centralrpt_dq_cde.STG_RULE_RESULTS`
@@ -88,7 +111,7 @@ def variance_check(rule_id):
     red_threshold = int(df[df['RULE_ID'] == str(rule_id)]['RED_THRESHOLD'].values[0])
     amber_threshold = int(df[df['RULE_ID'] == str(rule_id)]['AMBER_THRESHOLD'].values[0])
     result_rag = 'Red' if percent_change >= red_threshold else 'Amber' if percent_change >= amber_threshold else 'Green'
-    return percent_change, numerator_result, n_average, result_rag
+    return percent_change, numerator_result, n_average, result_rag, None
 
 # ----------------- Point to Point Check -----------------
 def ptp_check(rule_id):
@@ -100,7 +123,7 @@ def ptp_check(rule_id):
         red_threshold = int(df[df['RULE_ID'] == str(rule_id)]['RED_THRESHOLD'].values[0])
         amber_threshold = int(df[df['RULE_ID'] == str(rule_id)]['AMBER_THRESHOLD'].values[0])
         result_rag = 'Red' if numerator_result >= red_threshold else 'Amber' if numerator_result >= amber_threshold else 'Green'
-        return numerator_result, numerator_result, None, result_rag
+        return numerator_result, numerator_result, None, result_rag, None
     if numerator_result == 0:
         raise ValueError(f"P2P check failed: numerator result is ZERO for rule ID {rule_id} (division by zero risk)")
     denominator_sql = df[df['RULE_ID'] == str(rule_id)]['DENOMINATOR_SQL'].values[0]
@@ -109,7 +132,7 @@ def ptp_check(rule_id):
     red_threshold = int(df[df['RULE_ID'] == str(rule_id)]['RED_THRESHOLD'].values[0])
     amber_threshold = int(df[df['RULE_ID'] == str(rule_id)]['AMBER_THRESHOLD'].values[0])
     result_rag = 'Red' if percent_result >= red_threshold else 'Amber' if percent_result >= amber_threshold else 'Green'
-    return percent_result, numerator_result, denominator_result, result_rag
+    return percent_result, numerator_result, denominator_result, result_rag, None
 
 # ----------------- Execution Summary -----------------
 def execution_status(tables):
