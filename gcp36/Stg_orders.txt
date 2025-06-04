@@ -1,6 +1,4 @@
 create table stg_orders
 (
-
-
-
+    -- columns go here
 );
