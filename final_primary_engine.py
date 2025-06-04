@@ -9,7 +9,8 @@ from dataclasses import dataclass
 import uuid
 import time
 from decimal import Decimal
-from DQ.functions import standard_check, variance_check, ptp_check
+# Local implementation of rule checks
+from final_functions import standard_check, variance_check, ptp_check
 
 client = bigquery.Client()
 job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
@@ -33,21 +34,21 @@ def process_rule(row):
         execution_start_timestamp = datetime.fromtimestamp(execution_start_time)
 
         if rule_behavior == 'Standard':
-            result, numerator_result, denominator_result, rag = standard_check(rule_id)
+            result, numerator_result, denominator_result, rag, err_msg = standard_check(rule_id)
         elif rule_behavior == 'Variance':
-            result, numerator_result, denominator_result, rag = variance_check(rule_id)
+            result, numerator_result, denominator_result, rag, err_msg = variance_check(rule_id)
         else:
-            result, numerator_result, denominator_result, rag = ptp_check(rule_id)
+            result, numerator_result, denominator_result, rag, err_msg = ptp_check(rule_id)
 
-        if numerator_result is None:
-            print("NULL numerator for", rule_id)
+        if numerator_result is None or (denominator_result is None and threshold_type.lower() != 'count'):
+            print("Error for", rule_id, err_msg)
             return None, {
                 'execution_id': execution_id,
                 'rule_id': rule_id,
                 'snapshot_date': snapshot_date,
                 'is_latest_snapshot_flag': 'Y',
                 'is_successful': 'N',
-                'error_message': "NULL numerator"
+                'error_message': err_msg
             }
 
         execution_end_time = time.time()
